@@ -1,0 +1,147 @@
++76
+Lines changed: 76 additions & 0 deletions
+
+Original file line number	Diff line number	Diff line change
+@@ -0,0 +1,76 @@
+1	+
+AIM
+2	+
+Show a Python implementation of DES key scheduling (PC-1 / left shifts / PC-2) and provide a function that yields the 16 decryption subkeys (i.e., the encryption subkeys in reverse order). This demonstrates how decryption uses the same schedule but reverse order.
+3	+
+Note: this code implements the DES key schedule (not full DES encryption). It uses standard PC-1 and PC-2 tables and shift schedule.
+4	+
+# des_key_schedule.py
+5	+
+# Generate DES subkeys and produce reversed order for decryption
+6	+
+7	+
+PC1 = [
+8	+
+ 57,49,41,33,25,17,9,
+9	+
+ 1,58,50,42,34,26,18,
+10	+
+ 10,2,59,51,43,35,27,
+11	+
+ 19,11,3,60,52,44,36,
+12	+
+ 63,55,47,39,31,23,15,
+13	+
+ 7,62,54,46,38,30,22,
+14	+
+ 14,6,61,53,45,37,29,
+15	+
+ 21,13,5,28,20,12,4
+16	+
+]
+17	+
+18	+
+PC2 = [
+19	+
+ 14,17,11,24,1,5,
+20	+
+ 3,28,15,6,21,10,
+21	+
+ 23,19,12,4,26,8,
+22	+
+ 16,7,27,20,13,2,
+23	+
+ 41,52,31,37,47,55,
+24	+
+ 30,40,51,45,33,48,
+25	+
+ 44,49,39,56,34,53,
+26	+
+ 46,42,50,36,29,32
+27	+
+]
+28	+
+29	+
+# Left shifts per round
+30	+
+SHIFTS = [1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1]
+31	+
+32	+
+def str_to_bitlist(hexkey):
+33	+
+    # expects 64-bit key as hex or 8-char string; return 64-bit list
+34	+
+    if len(hexkey) == 16:  # hex
+35	+
+        b = bin(int(hexkey,16))[2:].zfill(64)
+36	+
+    else:
+37	+
+        b = ''.join(f"{ord(c):08b}" for c in hexkey[:8])
+38	+
+    return [int(x) for x in b]
+39	+
+40	+
+def permute(bits, table):
+41	+
+    return [bits[i-1] for i in table]
+42	+
+43	+
+def left_rotate(lst, n):
+44	+
+    return lst[n:] + lst[:n]
+45	+
+46	+
+def generate_subkeys(key64bits):
+47	+
+    # key64bits: list of 64 bits (parity bits included)
+48	+
+    key56 = permute(key64bits, PC1)  # 56 bits
+49	+
+    C = key56[:28]
+50	+
+    D = key56[28:]
+51	+
+    subkeys = []
+52	+
+    for s in SHIFTS:
+53	+
+        C = left_rotate(C, s)
+54	+
+        D = left_rotate(D, s)
+55	+
+        CD = C + D
+56	+
+        sub = permute(CD, PC2)  # 48 bits
+57	+
+        subkeys.append(sub)
+58	+
+    return subkeys
+59	+
+60	+
+def subkeys_for_decryption(key64bits):
+61	+
+    enc_keys = generate_subkeys(key64bits)
+62	+
+    return list(reversed(enc_keys))
+63	+
+64	+
+# Example usage
+65	+
+if __name__ == "__main__":
+66	+
+    # Example small test key (8 ASCII chars)
+67	+
+    key = "ABCDEFGH"  # 8 chars
+68	+
+    bits = str_to_bitlist(key)
+69	+
+    enc = generate_subkeys(bits)
+70	+
+    dec = subkeys_for_decryption(bits)
+71	+
+    print("K1 (enc):", ''.join(map(str,enc[0])))
+72	+
+    print("K16 (enc):", ''.join(map(str,enc[-1])))
+73	+
+    print("Decryption first subkey (should equal K16):", ''.join(map(str,dec[0])))
+74	+
+RESULT
+75	+
+76	+
+This program correctly generates encryption subkeys (K1...K16) using PC-1, rotation schedule, and PC-2, and returns the decryption subkeys as the encryption subkeys in reverse order (K16...K1) — which is how DES decryption is implemented
