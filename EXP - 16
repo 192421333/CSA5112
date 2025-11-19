@@ -1,0 +1,245 @@
+AIM
+
+
+2	+
+Automatically attack a monoalphabetic substitution cipher (simple substitution) and produce the top N plausible plaintext candidates ranked by an English fitness score — with no human intervention.
+3	+
+PYTHON CODE
+4	+
+This implements:
+5	+
+a scoring function based on word matches + English letter frequency,
+6	+
+an initial key guessed from frequency ordering,
+7	+
+a hill-climbing swap search (random restarts),
+8	+
+returns the top k candidates.
+9	+
+# mono_freq_attack.py
+10	+
+# Requires only Python standard library
+11	+
+12	+
+import random
+13	+
+import math
+14	+
+from collections import Counter
+15	+
+16	+
+ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+17	+
+18	+
+# small common words to reward matches
+19	+
+COMMON_WORDS = ["THE","BE","TO","OF","AND","A","IN","THAT","IS","I","IT","FOR","AS","YOU","DO","AT","HE","WAS","ON","ARE","WITH","HIS","THEY","I","THIS","HAVE","FROM","OR","ONE","HAD"]
+20	+
+21	+
+# English letter frequency order (approx)
+22	+
+EN_FREQ_ORDER = "ETAOINSHRDLCUMWFGYPBVKJXQZ"
+23	+
+24	+
+def score_plaintext(text):
+25	+
+    # Score by number of common words found + letter frequency ordering similarity
+26	+
+    t = text.upper()
+27	+
+    word_score = sum(t.count(" " + w + " ") + (1 if t.startswith(w+" ") else 0) + (1 if t.endswith(" "+w) else 0) for w in COMMON_WORDS)
+28	+
+    # frequency match score (higher if frequent cipher letters map to frequent english letters)
+29	+
+    freqs = Counter([c for c in t if c.isalpha()])
+30	+
+    if not freqs:
+31	+
+        return -1e9
+32	+
+    order = "".join([x for x,_ in freqs.most_common()])
+33	+
+    # measure how close 'order' is to EN_FREQ_ORDER by positions
+34	+
+    freq_score = -sum(abs(order.find(ch) - EN_FREQ_ORDER.find(ch)) for ch in order if ch in EN_FREQ_ORDER)
+35	+
+    return word_score * 10 + freq_score
+36	+
+37	+
+def apply_key(ciphertext, keymap):
+38	+
+    out = []
+39	+
+    km = {ALPH[i]: keymap[i] for i in range(26)}
+40	+
+    for c in ciphertext:
+41	+
+        if c.isalpha():
+42	+
+            up = c.upper()
+43	+
+            p = km[up]
+44	+
+            out.append(p if c.isupper() else p.lower())
+45	+
+        else:
+46	+
+            out.append(c)
+47	+
+    return "".join(out)
+48	+
+49	+
+def random_key_from_freq(ciphertext):
+50	+
+    # frequency order of ciphertext
+51	+
+    freqs = Counter([c.upper() for c in ciphertext if c.isalpha()])
+52	+
+    ordered = [c for c,_ in freqs.most_common()]
+53	+
+    # map most common to ETAOIN...
+54	+
+    keymap = ['?']*26
+55	+
+    used = set()
+56	+
+    for i,ch in enumerate(ordered):
+57	+
+        if i < len(EN_FREQ_ORDER):
+58	+
+            keymap[ALPH.index(ch)] = EN_FREQ_ORDER[i]
+59	+
+            used.add(EN_FREQ_ORDER[i])
+60	+
+    # fill remaining randomly
+61	+
+    remaining = [c for c in ALPH if c not in used]
+62	+
+    random.shuffle(remaining)
+63	+
+    for i in range(26):
+64	+
+        if keymap[i] == '?':
+65	+
+            keymap[i] = remaining.pop()
+66	+
+    # return mapping as list keyed by ciphertext letter index (A..Z)
+67	+
+    # but we want keymap indexed by ciphertext letter to plaintext letter
+68	+
+    # we will reorder to ALPH order
+69	+
+    # current keymap positions correspond to ciphertext letter indices where assigned; ensure mapping complete
+70	+
+    outmap = ['A']*26
+71	+
+    for i,ch in enumerate(ALPH):
+72	+
+        # find mapping if set else assign random
+73	+
+        if keymap[i] != '?':
+74	+
+            outmap[i] = keymap[i]
+75	+
+        else:
+76	+
+            outmap[i] = remaining.pop() if remaining else 'X'
+77	+
+    return outmap
+78	+
+79	+
+def hill_climb(ciphertext, restarts=50, iterations=2000):
+80	+
+    best_plains = []
+81	+
+    for r in range(restarts):
+82	+
+        # initial key
+83	+
+        keymap = random_key_from_freq(ciphertext)
+84	+
+        best_score = None
+85	+
+        best_map = keymap[:]
+86	+
+        plain = apply_key(ciphertext, best_map)
+87	+
+        best_score = score_plaintext(" " + plain.upper() + " ")
+88	+
+        for it in range(iterations):
+89	+
+            # propose swap of two plaintext letters in the mapping
+90	+
+            i,j = random.sample(range(26),2)
+91	+
+            # swap values
+92	+
+            keymap[i], keymap[j] = keymap[j], keymap[i]
+93	+
+            plain_candidate = apply_key(ciphertext, keymap)
+94	+
+            sc = score_plaintext(" " + plain_candidate.upper() + " ")
+95	+
+            if sc >= best_score:
+96	+
+                best_score = sc
+97	+
+                best_map = keymap[:]
+98	+
+            else:
+99	+
+                # revert swap with small probability (simulated annealing-ish)
+100	+
+                if random.random() < 0.001:
+101	+
+                    pass
+102	+
+                else:
+103	+
+                    keymap[i], keymap[j] = keymap[j], keymap[i]
+104	+
+        best_plains.append((best_score, apply_key(ciphertext, best_map)))
+105	+
+    # rank and return top 10 unique candidates
+106	+
+    best_plains.sort(reverse=True, key=lambda x: x[0])
+107	+
+    seen = set()
+108	+
+    top = []
+109	+
+    for sc, p in best_plains:
+110	+
+        up = p.upper()
+111	+
+        if up not in seen:
+112	+
+            seen.add(up)
+113	+
+            top.append((sc,p))
+114	+
+        if len(top) >= 10:
+115	+
+            break
+116	+
+    return top
+117	+
+118	+
+# Example usage:
+119	+
+if __name__ == "__main__":
+120	+
+    cipher = input("Enter monoalphabetic ciphertext:\n")
+121	+
+    top = hill_climb(cipher, restarts=80, iterations=1500)
+122	+
+    print("\nTop candidates (score, plaintext):\n")
+123	+
+    for sc,p in top:
+124	+
+        print(f"{sc:.1f}  {p}")
+125	+
+RESULT
+126	+
+127	+
+The script returns a ranked list of plausible plaintexts (top 10 by default). The algorithm is heuristic (hill climbing) and will often find the correct plaintext for reasonably long ciphertexts (≥ ~50 letters). You can tune restarts and iterations to improve quality.
